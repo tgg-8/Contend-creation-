@@ -1,0 +1,17 @@
+# Zugangsdaten und persönliche Einstellungen – niemals hochladen
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Ergebnisse und Protokolle von Testläufen
+test_ausgabe/
+logs/
+
+# Videos, falls sie versehentlich im Projektordner landen
+*.mp4
+*.mov
+*.m4v

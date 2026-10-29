@@ -1,0 +1,2 @@
+# Lokale Spracherkennung (Whisper) für deutsche Untertitel. Kostenlos, läuft offline.
+faster-whisper>=1.0
