@@ -1,2 +1,5 @@
 # Lokale Spracherkennung (Whisper) für deutsche Untertitel. Kostenlos, läuft offline.
 faster-whisper>=1.0
+
+# Graphify: baut aus dem Projekt einen Wissensgraphen (Skill /graphify in Claude Code).
+graphifyy>=0.9.97
