@@ -15,4 +15,5 @@ logs/
 *.mp4
 *.mov
 *.m4v
-graphify-out/
+graphify-out/.graphify_python
+graphify-out/.graphify_root
