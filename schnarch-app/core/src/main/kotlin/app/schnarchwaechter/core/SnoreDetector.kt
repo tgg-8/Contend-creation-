@@ -178,8 +178,12 @@ class SnoreDetector(
             listener.onFrame(timeMs, levelDb, Double.NaN)
             return
         }
-        totalFloor.add(levelDb)
-        bandFloor.add(bandDb)
+        // Digital silence (microphone muted by the system, e.g. during a phone call) must not drag
+        // the noise floor down, otherwise detection would be blind for a while afterwards.
+        if (levelDb > DIGITAL_SILENCE_DB) {
+            totalFloor.add(levelDb)
+            bandFloor.add(bandDb)
+        }
         listener.onFrame(timeMs, levelDb, totalFloor.floorDb)
 
         val excess = bandDb - bandFloor.floorDb
@@ -324,6 +328,10 @@ class SnoreDetector(
         val built = ep.build()
         if (built.durationMs >= config.minEpisodeSec * 1000) listener.onEpisodeEnded(built)
         else listener.onEpisodeDiscarded(ep.startMs)
+    }
+
+    private companion object {
+        const val DIGITAL_SILENCE_DB = -100.0
     }
 
     private class EpisodeBuilder(val startMs: Long) {

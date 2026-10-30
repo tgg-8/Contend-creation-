@@ -48,6 +48,14 @@ class SnoreDetectorTest {
     }
 
     @Test
+    fun `muted microphone (phone call) does not blind the detection afterwards`() {
+        val signal = concat(room(120.0), silence(sr, 600.0), mix(room(300.0, 2), snoring(sr, 300.0, -40.0)))
+        val run = DetectorRun(signal, sr)
+        assertEquals(1, run.episodes.size)
+        assertEquals(300.0, run.episodes[0].durationMs / 1000.0, 20.0)
+    }
+
+    @Test
     fun `level measurement matches the RMS of the test signal`() {
         val run = DetectorRun(whiteNoise(sr, 60.0, -40.0), sr)
         val mean = run.frameLevels.drop(10).average()
