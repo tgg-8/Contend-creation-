@@ -8,7 +8,7 @@ package app.schnarchwaechter.core
  * the (uncalibrated) microphone gain.
  *
  * To tune with real recordings: run `./gradlew :core:analyzeWav --args="night.wav"` and adjust the
- * values below (see TUNING.md).
+ * values below (see README.md, section 6).
  */
 data class DetectionConfig(
     /** Analysis frame length. 100 ms = 10 cheap level values per second. */

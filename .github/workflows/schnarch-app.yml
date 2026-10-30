@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write # needed to publish the APK as a (pre)release for easy download on the phone
 
 jobs:
   build:
@@ -43,12 +43,27 @@ jobs:
           "$BT/aapt2" dump badging app/build/outputs/apk/debug/app-debug.apk | head -5
           ls -la app/build/outputs/apk/debug/
 
+      - name: Rename APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk Schnarchwaechter.apk
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: schnarchwaechter-debug-apk
-          path: schnarch-app/app/build/outputs/apk/debug/app-debug.apk
+          name: Schnarchwaechter-APK
+          path: schnarch-app/Schnarchwaechter.apk
           retention-days: 30
+
+      - name: Publish APK as release (direct download on the phone)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: schnarchwaechter-build-${{ github.run_number }}
+          name: Schnarchwächter (Build ${{ github.run_number }})
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          body: |
+            Auf dem Handy Schnarchwaechter.apk herunterladen und öffnen.
+            Anleitung: schnarch-app/README.md
+          files: schnarch-app/Schnarchwaechter.apk
 
       - name: Upload test reports
         if: always()
