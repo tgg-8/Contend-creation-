@@ -26,9 +26,46 @@ def _mit_hashtags(text: str, tags: list[str]) -> str:
     return (text.strip() + ("\n\n" + " ".join(tags) if tags else "")).strip()
 
 
-def baue_beitraege(idee: dict[str, str], dateien: dict[str, str], protokoll) -> tuple[list[dict], list[str]]:
-    """Gibt (Liste der Beiträge für Metricool, Liste fehlender Texte) zurück."""
+# Wörter, an denen man erkennt, dass der Verkaufshinweis als eigene Werbung gekennzeichnet ist
+EIGENWERBUNG_WOERTER = ("eigen", "werbung", "anzeige")
+
+
+def verkaufsdaten(idee: dict[str, str], hinweis: str, link: str, protokoll) -> dict | None:
+    """Entscheidet, ob an diesen Beitrag ein Hinweis auf dein eigenes Produkt kommt.
+
+    Nur wenn die Idee-Datei unter "## Verkaufshinweis" mit "ja" beginnt UND in der .env ein
+    VERKAUFS_HINWEIS steht. Solange der Shop nicht live ist, bleibt die .env leer und es passiert nichts.
+    """
+    if not idee.get("verkaufshinweis", "").strip().lower().startswith("ja"):
+        return None
+    hinweis, link = hinweis.strip(), link.strip()
+    if not hinweis:
+        protokoll.info("Die Idee wünscht einen Verkaufshinweis, aber VERKAUFS_HINWEIS in der .env ist leer. Er wird weggelassen.")
+        return None
+    if not any(wort in hinweis.lower() for wort in EIGENWERBUNG_WOERTER):
+        protokoll.warnung("VERKAUFS_HINWEIS sagt nicht klar, dass es dein eigenes Produkt ist (z. B. „mein eigener Guide“)")
+    if link and not link.startswith("https://"):
+        protokoll.warnung(f"VERKAUFS_LINK sollte mit https:// beginnen und wird ignoriert: {link}")
+        link = ""
+    return {"hinweis": hinweis, "link": link}
+
+
+def _mit_hinweis(text: str, hinweis: str) -> str:
+    """Hängt den Verkaufshinweis als eigenen Absatz an (vor die Hashtags). Leere Texte bleiben leer."""
+    if not text.strip() or not hinweis:
+        return text
+    return text.strip() + "\n\n" + hinweis
+
+
+def baue_beitraege(idee: dict[str, str], dateien: dict[str, str], protokoll,
+                   verkauf: dict | None = None) -> tuple[list[dict], list[str]]:
+    """Gibt (Liste der Beiträge für Metricool, Liste fehlender Texte) zurück.
+
+    `verkauf` kommt aus verkaufsdaten(): {"hinweis": ..., "link": ...} oder None.
+    """
     fehlend: list[str] = []
+    hinweis = (verkauf or {}).get("hinweis", "")
+    link = (verkauf or {}).get("link", "")
 
     def feld(schluessel: str) -> str:
         wert = idee.get(schluessel, "").strip()
@@ -49,17 +86,20 @@ def baue_beitraege(idee: dict[str, str], dateien: dict[str, str], protokoll) -> 
         return text
 
     ig = pruefe_laenge("Instagram-Caption",
-                       _mit_hashtags(feld("instagram_caption"), tags("instagram_hashtags", GRENZEN["instagram_hashtags"])),
+                       _mit_hashtags(_mit_hinweis(feld("instagram_caption"), hinweis),
+                                     tags("instagram_hashtags", GRENZEN["instagram_hashtags"])),
                        GRENZEN["instagram_caption"])
     tk = pruefe_laenge("TikTok-Caption",
-                       _mit_hashtags(feld("tiktok_caption"), tags("tiktok_hashtags", GRENZEN["tiktok_hashtags"])),
+                       _mit_hashtags(_mit_hinweis(feld("tiktok_caption"), hinweis),
+                                     tags("tiktok_hashtags", GRENZEN["tiktok_hashtags"])),
                        GRENZEN["tiktok_caption"])
 
     yt_titel = pruefe_laenge("YouTube-Titel", feld("youtube_titel"), GRENZEN["youtube_titel"])
     if len(yt_titel) > GRENZEN["youtube_titel_empfohlen"]:
         protokoll.warnung(f"YouTube-Titel hat {len(yt_titel)} Zeichen; auf dem Handy werden etwa 60 angezeigt")
     yt_text = pruefe_laenge("YouTube-Beschreibung",
-                            _mit_hashtags(idee.get("youtube_beschreibung", ""), tags("youtube_hashtags", GRENZEN["youtube_hashtags"])),
+                            _mit_hashtags(_mit_hinweis(idee.get("youtube_beschreibung", ""), hinweis),
+                                          tags("youtube_hashtags", GRENZEN["youtube_hashtags"])),
                             GRENZEN["youtube_beschreibung"])
 
     pin_titel = pruefe_laenge("Pin-Titel", feld("pinterest_titel"), GRENZEN["pinterest_titel"])
@@ -88,4 +128,10 @@ def baue_beitraege(idee: dict[str, str], dateien: dict[str, str], protokoll) -> 
         {"plattform": "pinterest", "typ": "PIN", "datei": dateien.get("pinterest_pin"),
          "titel": pin_titel, "text": pin_text, "board": idee.get("pinterest_board", "").strip()},
     ]
+    if hinweis:
+        for b in beitraege:
+            if b["plattform"] == "tiktok" and b["typ"] == "VIDEO":
+                b["eigenwerbung"] = True   # TikTok-Kennzeichnung „Werbung für eigene Marke“
+            if b["plattform"] == "pinterest" and link:
+                b["link"] = link           # der Pin führt direkt zur Produktseite
     return [b for b in beitraege if b.get("datei")], sorted(set(fehlend))

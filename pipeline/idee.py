@@ -29,6 +29,7 @@ FELDER = [
     ("pintitel", "pinterest_titel"),
     ("pinbeschreibung", "pinterest_beschreibung"),
     ("pintext", "pin_text"),
+    ("verkaufshinweis", "verkaufshinweis"),
     ("geplant", "geplant"),
 ]
 

@@ -32,6 +32,9 @@ class Einstellungen:
     pruef_intervall: int = 120
     # So lange (Sekunden) darf sich eine Datei nicht mehr ändern, bevor sie als fertig synchronisiert gilt
     ruhezeit: int = 60
+    # Hinweis auf dein eigenes Produkt (leer = aus) und der Link zur Produktseite (für Pinterest)
+    verkaufs_hinweis: str = ""
+    verkaufs_link: str = ""
 
     @property
     def rohmaterial(self) -> Path:
@@ -72,4 +75,6 @@ def lade(env_pfad: Path | None = None, content_ordner: Path | None = None) -> Ei
         musik_lautstaerke=float(wert("MUSIK_LAUTSTAERKE", "0.12")),
         schrift=wert("SCHRIFT", "Arial"),
         pruef_intervall=int(wert("PRUEF_INTERVALL", "120")),
+        verkaufs_hinweis=wert("VERKAUFS_HINWEIS"),
+        verkaufs_link=wert("VERKAUFS_LINK"),
     )

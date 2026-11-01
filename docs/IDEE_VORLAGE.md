@@ -53,6 +53,11 @@ Wie wichtig Schlaf für Sprinter ist, ehrlich getestet mit Whoop-Daten. Tipps f�
 
 ## Pin-Text
 4 h Schlaf vs. Sprint
+
+## Verkaufshinweis
+nein
 ```
 
 `Pin-Text` ist der kurze Text, der groß auf das Pinterest-Bild kommt. Fehlt er, nimmt die Pipeline den Pin-Titel.
+
+`Verkaufshinweis` ist optional. Steht dort `ja`, hängt die Pipeline den Text aus `VERKAUFS_HINWEIS` (`.env`) an die Captions von Instagram, TikTok und YouTube an, der Pin bekommt den Link aus `VERKAUFS_LINK`, und TikTok wird als Werbung für die eigene Marke gekennzeichnet. Ist `VERKAUFS_HINWEIS` leer, passiert nichts.

@@ -13,7 +13,7 @@ from .ordner import FEHLER_MARKER, FERTIG_MARKER, Auftrag, ist_bild
 from .plattformen import AUSGABEN
 from .protokoll import FEHLER, WARNUNG, Protokoll
 from .schnitt import an_wortgrenzen, behalte_abschnitte, bewerte, finde_hook, gesamtdauer, plane
-from .texte import baue_beitraege
+from .texte import baue_beitraege, verkaufsdaten
 from .transkript import transkribiere
 from .untertitel import ass_datei, gruppiere, neue_zeitachse, pin_ass, srt_datei
 
@@ -151,7 +151,10 @@ def _ablauf(auftrag: Auftrag, e: Einstellungen, ziel: Path, arbeit: Path, p: Pro
         p.fehler(f"Vorschau-/Pinterest-Bild konnte nicht erstellt werden: {fehler}")
 
     # 7. Texte zusammensetzen und alles in beitrag.json schreiben (die Datei kommt zuletzt = Zeichen für "fertig")
-    beitraege, fehlend = baue_beitraege(idee, dateien, p)
+    verkauf = verkaufsdaten(idee, e.verkaufs_hinweis, e.verkaufs_link, p)
+    if verkauf:
+        p.info("Verkaufshinweis wird an Instagram, TikTok und YouTube angehängt")
+    beitraege, fehlend = baue_beitraege(idee, dateien, p, verkauf)
     if fehlend:
         p.warnung("Fehlende Texte: " + ", ".join(fehlend) + " – die Claude-Aufgabe ergänzt sie aus dem Transkript")
 
@@ -167,6 +170,7 @@ def _ablauf(auftrag: Auftrag, e: Einstellungen, ziel: Path, arbeit: Path, p: Pro
         "geplant": idee.get("geplant", ""),
         "transkript": " ".join(w.text for w in woerter),
         "fehlende_texte": fehlend,
+        "verkauf": verkauf,
         "dateien": dateien,
         "beitraege": beitraege,
         "warnungen": p.nur(WARNUNG),

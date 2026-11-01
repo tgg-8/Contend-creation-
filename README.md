@@ -6,6 +6,7 @@ Clips in Google Drive werfen, und fertig geschnittene Kurzvideos mit Untertiteln
 - Was du noch selbst erledigen musst: [docs/TODO.md](docs/TODO.md)
 - Aufbau einer Idee-Datei: [docs/IDEE_VORLAGE.md](docs/IDEE_VORLAGE.md)
 - Aufträge für die Claude-Aufgaben: [aufgaben/](aufgaben/)
+- Mit Content Geld verdienen (Guide, Video-Analyse, Einnahmen-Tracking): [einnahmen/FAHRPLAN.md](einnahmen/FAHRPLAN.md)
 
 ---
 

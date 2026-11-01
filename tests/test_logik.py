@@ -8,7 +8,7 @@ from pipeline.idee import finde_ideendatei, hashtags, lies_idee
 from pipeline.protokoll import Protokoll
 from pipeline.schnitt import (Abschnitt, Bewertung, Wort, an_wortgrenzen, behalte_abschnitte, bewerte,
                               finde_hook, gesamtdauer, plane)
-from pipeline.texte import baue_beitraege
+from pipeline.texte import baue_beitraege, verkaufsdaten
 from pipeline.untertitel import ass_datei, gruppiere, neue_zeitachse, zeit_ass, zeit_srt
 
 
@@ -149,6 +149,60 @@ class TexteTests(unittest.TestCase):
         p = StummesProtokoll()
         baue_beitraege({"instagram_caption": "Tauche ein in mein Training — los"}, {"instagram_reel": "r.mp4"}, p)
         self.assertTrue(any("KI" in t for t in p.nur("WARNUNG")))
+
+
+class VerkaufTests(unittest.TestCase):
+    HINWEIS = "Mein eigener 8-Wochen-Speed-Plan: Link in Bio"
+    LINK = "https://www.digistore24.com/product/123"
+
+    def test_nur_wenn_idee_ja_sagt_und_hinweis_gesetzt_ist(self):
+        p = StummesProtokoll()
+        self.assertIsNone(verkaufsdaten({}, self.HINWEIS, self.LINK, p))
+        self.assertIsNone(verkaufsdaten({"verkaufshinweis": "nein"}, self.HINWEIS, self.LINK, p))
+        self.assertIsNone(verkaufsdaten({"verkaufshinweis": "ja"}, "", self.LINK, p))  # Shop noch nicht live
+        self.assertEqual(verkaufsdaten({"verkaufshinweis": "Ja, passt"}, self.HINWEIS, self.LINK, p),
+                         {"hinweis": self.HINWEIS, "link": self.LINK})
+        self.assertEqual(p.nur("WARNUNG"), [])
+
+    def test_warnt_bei_fehlender_kennzeichnung_und_falschem_link(self):
+        p = StummesProtokoll()
+        verkauf = verkaufsdaten({"verkaufshinweis": "ja"}, "Speed-Plan: Link in Bio", "www.shop.de", p)
+        self.assertEqual(verkauf["link"], "")
+        self.assertEqual(len(p.nur("WARNUNG")), 2)
+
+    def test_hinweis_vor_hashtags_tiktok_eigenwerbung_und_pin_link(self):
+        p = StummesProtokoll()
+        idee = {"instagram_caption": "Startblock-Drill.", "instagram_hashtags": "#sprint",
+                "tiktok_caption": "Startblock-Drill.", "youtube_beschreibung": "Mein Drill.",
+                "pinterest_titel": "Startblock", "pinterest_beschreibung": "Drill für Sprinter"}
+        dateien = {"instagram_reel": "r.mp4", "tiktok": "t.mp4", "youtube_short": "y.mp4", "pinterest_pin": "p.jpg"}
+        verkauf = {"hinweis": self.HINWEIS, "link": self.LINK}
+        beitraege, _ = baue_beitraege(idee, dateien, p, verkauf)
+        nach = {(b["plattform"], b["typ"]): b for b in beitraege}
+        self.assertEqual(nach[("instagram", "REEL")]["text"], "Startblock-Drill.\n\n" + self.HINWEIS + "\n\n#sprint")
+        self.assertIn(self.HINWEIS, nach[("tiktok", "VIDEO")]["text"])
+        self.assertTrue(nach[("tiktok", "VIDEO")]["eigenwerbung"])
+        self.assertIn(self.HINWEIS, nach[("youtube", "short")]["text"])
+        self.assertEqual(nach[("pinterest", "PIN")]["link"], self.LINK)
+        self.assertNotIn(self.HINWEIS, nach[("pinterest", "PIN")]["text"])
+
+    def test_ohne_verkauf_bleibt_alles_wie_vorher(self):
+        p = StummesProtokoll()
+        beitraege, _ = baue_beitraege({"instagram_caption": "Drill."}, {"instagram_reel": "r.mp4", "tiktok": "t.mp4"}, p)
+        self.assertEqual(beitraege[0]["text"], "Drill.")
+        self.assertFalse(any(b.get("eigenwerbung") for b in beitraege))
+
+    def test_fehlende_caption_bekommt_keinen_hinweis(self):
+        p = StummesProtokoll()
+        beitraege, fehlend = baue_beitraege({}, {"instagram_reel": "r.mp4"}, p, {"hinweis": self.HINWEIS, "link": ""})
+        self.assertEqual(beitraege[0]["text"], "")
+        self.assertIn("instagram_caption", fehlend)
+
+    def test_idee_datei_liest_verkaufshinweis(self):
+        with tempfile.TemporaryDirectory() as ordner:
+            pfad = Path(ordner) / "idee.md"
+            pfad.write_text("# X\n\n## Verkaufshinweis\nja\n", encoding="utf-8")
+            self.assertEqual(lies_idee(pfad)["verkaufshinweis"], "ja")
 
 
 if __name__ == "__main__":
