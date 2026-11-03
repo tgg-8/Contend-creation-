@@ -107,6 +107,7 @@ aside h2{font-size:.75rem;letter-spacing:.09em;text-transform:uppercase;color:va
 .timer{font-size:1.25rem;font-weight:600}
 .meter{height:6px;border-radius:999px;background:var(--line);overflow:hidden;max-width:340px}
 .meter i{display:block;height:100%;width:0;background:var(--green);transition:width .35s ease}
+.engine-info{font-size:.82rem;color:var(--ink-soft)}
 .markers{display:flex;gap:8px;flex-wrap:wrap}
 .mark-btn{border:1px solid var(--line);background:var(--sheet);border-radius:8px;padding:6px 10px;cursor:pointer;font-weight:700;font-size:.85rem;display:inline-flex;gap:6px;align-items:center}
 .mark-btn kbd{font-family:var(--f-mono);font-size:.7rem;color:var(--ink-soft);border:1px solid var(--line);border-radius:4px;padding:0 4px}
@@ -261,6 +262,22 @@ dialog::backdrop{background:rgba(10,15,25,.45)}
       </select>
     </div>
     <div class="field">
+      <label for="setEngine">Spracherkennung</label>
+      <select id="setEngine">
+        <option value="auto">Automatisch (empfohlen)</option>
+        <option value="geraet">Auf dem Gerät – funktioniert überall, Text nach jeder Sprechpause</option>
+        <option value="browser">Im Browser – Text sofort, braucht Chrome/Edge bzw. Safari-Diktat</option>
+      </select>
+      <small>„Automatisch“ nimmt auf iPad und iPhone die Erkennung auf dem Gerät und wechselt sonst dorthin, wenn die Browser-Erkennung nichts liefert.</small>
+    </div>
+    <div class="field">
+      <label for="setWhisper">Sprachmodell auf dem Gerät</label>
+      <select id="setWhisper">
+        <option value="base">Schnell (ca. 80 MB, einmaliger Download)</option>
+        <option value="small">Genauer (ca. 250 MB, braucht ein schnelles Gerät)</option>
+      </select>
+    </div>
+    <div class="field">
       <label for="setCount">Anzahl Übungsaufgaben pro Stunde</label>
       <input id="setCount" type="number" min="2" max="12" step="1">
     </div>
@@ -370,7 +387,7 @@ function autoTag(text){
    ============================================================ */
 const KEY = 'mathe-mitschrift-v1';
 function defaults(){
-  return {sessions: [], activeId: null, settings: {apiKey:'', model:'claude-opus-5-5', klasse:'', lang:'de-DE', count:5}};
+  return {sessions: [], activeId: null, settings: {apiKey:'', model:'claude-opus-5-5', klasse:'', lang:'de-DE', count:5, engine:'auto', whisper:'base'}};
 }
 function load(){
   try{
@@ -484,66 +501,231 @@ function srErrorText(code){
 
 function setLevel(v){ const bar = $('#meterBar'); if (bar) bar.style.width = v + '%'; }
 
+// Welche Erkennung? "browser" = eingebaute Spracherkennung (Chrome/Edge/Safari, über Internet),
+// "geraet" = Whisper läuft direkt auf dem Gerät (funktioniert überall, wo das Mikrofon geht).
+function chooseEngine(){
+  const pref = state.settings.engine || 'auto';
+  if (pref === 'browser' && SR) return 'browser';
+  if (pref === 'geraet') return 'geraet';
+  if (!SR || IS_FILE || IS_IOS) return 'geraet';   // iPhone/iPad: Safari-Diktat ist oft blockiert
+  return 'browser';
+}
+
 async function startRecording(){
   const s = active(); if (!s) return;
-  if (!SR){ toast('Live-Transkription geht nur in Chrome, Edge oder Safari. Du kannst Text aber eintippen oder einfügen.', 6000); return; }
   if (s.example){ toast('Das ist die Beispielstunde. Tippe auf „Neue Stunde“, um selbst aufzunehmen.'); return; }
-  rec.on = true; rec.sessionId = s.id; rec.stintStart = Date.now(); rec.interim = ''; rec.gotResult = false; rec.fails = 0;
+  // AudioContext noch innerhalb des Tipp-Ereignisses anlegen (sonst bleibt er auf iPad/iPhone stumm)
+  ensureAudioContext();
+  rec.engine = chooseEngine();
+  rec.on = true; rec.sessionId = s.id; rec.stintStart = Date.now(); rec.interim = ''; rec.gotResult = false; rec.anyInterim = false; rec.fails = 0;
   rec.sr = null; renderMain(); renderSidebar();
-  spawnRecognizer();
+  if (rec.engine === 'geraet') await startOnDevice();
+  else {
+    spawnRecognizer();
+    clearTimeout(rec.watchdog);
+    rec.watchdog = setTimeout(() => {
+      if (rec.on && rec.engine === 'browser' && !rec.gotResult && !rec.anyInterim && (state.settings.engine || 'auto') === 'auto')
+        switchToOnDevice('Die Browser-Erkennung liefert keinen Text.');
+    }, 15000);
+  }
+  if (!rec.on) return;
   try{ rec.wake = await navigator.wakeLock?.request('screen'); }catch(_){}
   clearInterval(rec.tick); rec.tick = setInterval(updateTimer, 1000);
+}
+
+function switchToOnDevice(reason){
+  const sr = rec.sr; rec.sr = null; try{ sr?.abort(); }catch(_){}
+  rec.engine = 'geraet';
+  toast(reason + ' Ich nutze jetzt die Erkennung direkt auf dem Gerät.', 7000);
+  startOnDevice();
 }
 
 // Eine Erkennungs-Runde. Chrome beendet die Erkennung regelmäßig von selbst,
 // deshalb wird nach jedem Ende automatisch eine neue Runde gestartet.
 function spawnRecognizer(){
-  if (!rec.on) return;
+  if (!rec.on || rec.engine !== 'browser') return;
   const sr = new SR();
   sr.lang = state.settings.lang || 'de-DE';
-  sr.continuous = !IS_ANDROID;          // Android liefert im Dauer-Modus doppelte Sätze
+  sr.continuous = !IS_ANDROID && !IS_IOS;   // Android/iOS liefern im Dauer-Modus doppelte bzw. nie fertige Sätze
   sr.interimResults = true; sr.maxAlternatives = 1;
   let fatal = false;
   sr.onaudiostart = () => setLevel(15);
   sr.onspeechstart = () => setLevel(85);
   sr.onspeechend = () => setLevel(15);
   sr.onresult = e => {
-    rec.gotResult = true; rec.fails = 0; setLevel(70 + Math.random() * 30);
+    rec.fails = 0; setLevel(70 + Math.random() * 30);
     let interim = '';
     for (let i = e.resultIndex; i < e.results.length; i++){
       const r = e.results[i];
-      if (r.isFinal){ const txt = r[0].transcript.trim(); if (txt) addSegment(txt); }
+      if (r.isFinal){ const txt = r[0].transcript.trim(); if (txt){ rec.gotResult = true; addSegment(txt); } }
       else interim += r[0].transcript;
     }
-    rec.interim = interim; const el = $('#interim'); if (el) el.textContent = interim ? interim + ' …' : '';
+    if (interim) rec.anyInterim = true;
+    rec.interim = interim; showInterim(interim ? interim + ' …' : '');
   };
   sr.onerror = e => {
     if (e.error === 'no-speech' || e.error === 'aborted') return;   // harmlos, Runde startet neu
     rec.fails++;
     const blocking = ['not-allowed', 'service-not-allowed', 'audio-capture', 'language-not-supported'].includes(e.error);
-    // Blockierende Fehler nur dann als endgültig werten, wenn noch nie etwas erkannt wurde
-    // oder sie sich mehrfach hintereinander wiederholen.
     if (blocking && (!rec.gotResult || rec.fails >= 3)){
-      fatal = true; toast(srErrorText(e.error), 9000); stopRecording();
+      fatal = true;
+      if ((state.settings.engine || 'auto') === 'auto' && rec.sr === sr) switchToOnDevice(srErrorText(e.error));
+      else { toast(srErrorText(e.error), 9000); stopRecording(); }
     } else if (e.error === 'network' && rec.fails === 1){
       toast(srErrorText('network'));
     }
   };
   sr.onend = () => {
+    if (rec.sr !== sr) return;
     setLevel(0);
-    if (fatal || !rec.on || rec.sr !== sr) return;
-    if (rec.interim){ addSegment(rec.interim.trim()); rec.interim = ''; const el = $('#interim'); if (el) el.textContent = ''; }
+    if (rec.interim){ rec.gotResult = true; addSegment(rec.interim.trim()); rec.interim = ''; showInterim(''); }
+    if (fatal || !rec.on) return;
     setTimeout(spawnRecognizer, rec.fails ? Math.min(3000, 400 * rec.fails) : 150);
   };
   rec.sr = sr;
   try{ sr.start(); }
-  catch(err){ toast('Spracherkennung konnte nicht starten: ' + err.message, 7000); stopRecording(); }
+  catch(err){
+    if ((state.settings.engine || 'auto') === 'auto') switchToOnDevice('Die Browser-Erkennung startet nicht.');
+    else { toast('Spracherkennung konnte nicht starten: ' + err.message, 7000); stopRecording(); }
+  }
+}
+
+function showInterim(t){ const el = $('#interim'); if (el) el.textContent = t; }
+
+/* ---------- Erkennung auf dem Gerät (Whisper) ---------- */
+const OD = {worker: null, ready: false, loadingPct: null, ctx: null, stream: null, src: null, proc: null,
+            chunk: [], chunkLen: 0, chunkStart: 0, speechSamples: 0, silentSamples: 0, noise: 0.004,
+            pending: 0, nextId: 1, jobs: new Map(), error: null};
+const MODELS = {base: 'onnx-community/whisper-base', small: 'onnx-community/whisper-small'};
+const modelId = () => MODELS[state.settings.whisper] || MODELS.base;
+const whisperLang = () => (state.settings.lang || 'de-DE').startsWith('en') ? 'english' : 'german';
+
+function ensureAudioContext(){
+  try{
+    if (!OD.ctx || OD.ctx.state === 'closed') OD.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    OD.ctx.resume?.();
+  }catch(_){}
+}
+
+function getWorker(){
+  if (OD.worker) return OD.worker;
+  const w = new Worker('whisper-worker.js', {type: 'module'});
+  w.onmessage = e => {
+    const m = e.data;
+    if (m.type === 'progress'){ OD.loadingPct = m.percent; OD.loadingMb = m.mb; updateEngineInfo(); }
+    else if (m.type === 'ready'){ OD.ready = true; OD.loadingPct = null; updateEngineInfo(); }
+    else if (m.type === 'result'){
+      const job = OD.jobs.get(m.id); OD.jobs.delete(m.id); OD.pending = Math.max(0, OD.pending - 1);
+      const text = cleanWhisper(m.text);
+      const sess = job && state.sessions.find(x => x.id === job.sessionId);
+      if (text && sess) addSegmentTo(sess, text, {t: job.t});
+      updateEngineInfo();
+    } else if (m.type === 'error'){
+      if (m.id) { OD.jobs.delete(m.id); OD.pending = Math.max(0, OD.pending - 1); }
+      OD.error = m.message; updateEngineInfo();
+      toast('Erkennung auf dem Gerät: ' + (OD.ready ? 'Ein Abschnitt konnte nicht erkannt werden.' : 'Das Sprachmodell konnte nicht geladen werden. Prüfe die Internetverbindung.'), 7000);
+    }
+  };
+  w.onerror = () => { OD.error = 'worker'; toast('Die Erkennung auf dem Gerät wird von diesem Browser nicht unterstützt. Bitte Safari, Chrome oder Edge aktualisieren.', 8000); };
+  OD.worker = w;
+  w.postMessage({type: 'load', model: modelId()});
+  return w;
+}
+
+// Typische Whisper-Halluzinationen bei Stille/Rauschen herausfiltern
+const WHISPER_JUNK = /untertitel|amara\.org|zdf|swr|copyright|vielen dank (fürs|für's|für das) zuschauen|bis zum nächsten mal\.?$|abonniert|www\.|\.de\b|^\W*(musik|applaus|lachen)\W*$/i;
+function cleanWhisper(t){
+  t = String(t || '').replace(/\[[^\]]*\]|\([^)]*musik[^)]*\)|\*[^*]*\*/gi, '').replace(/\s+/g, ' ').trim();
+  if (!t || t.length < 2 || WHISPER_JUNK.test(t)) return '';
+  return t;
+}
+
+async function startOnDevice(){
+  OD.error = null;
+  ensureAudioContext();
+  try{
+    OD.stream = await navigator.mediaDevices.getUserMedia({audio: {echoCancellation: true, noiseSuppression: true, autoGainControl: true}});
+  }catch(err){
+    toast(IS_IOS ? 'Kein Zugriff aufs Mikrofon. Erlaube es unter Einstellungen › Safari › Mikrofon, oder tippe in der Adresszeile auf „AA“ › Website-Einstellungen › Mikrofon › Erlauben.'
+                 : 'Kein Zugriff aufs Mikrofon. Erlaube das Mikrofon für diese Seite (Schloss-Symbol neben der Adresse).', 9000);
+    stopRecording(); return;
+  }
+  if (!rec.on){ OD.stream.getTracks().forEach(t => t.stop()); OD.stream = null; return; }
+  try{ getWorker(); }catch(_){ toast('Die Erkennung auf dem Gerät wird von diesem Browser nicht unterstützt.', 7000); }
+  const ctx = OD.ctx; try{ await ctx.resume(); }catch(_){}
+  OD.src = ctx.createMediaStreamSource(OD.stream);
+  OD.proc = ctx.createScriptProcessor(4096, 1, 1);
+  OD.chunk = []; OD.chunkLen = 0; OD.speechSamples = 0; OD.silentSamples = 0; OD.chunkStart = elapsedNow(active() || {elapsed: 0});
+  const rate = ctx.sampleRate;
+  OD.proc.onaudioprocess = e => {
+    if (!rec.on || rec.engine !== 'geraet') return;
+    const d = e.inputBuffer.getChannelData(0);
+    let sum = 0; for (let i = 0; i < d.length; i++) sum += d[i] * d[i];
+    const rms = Math.sqrt(sum / d.length);
+    const speaking = rms > Math.max(0.008, OD.noise * 2.8);
+    if (!speaking) OD.noise = OD.noise * 0.97 + rms * 0.03;     // Grundrauschen nachführen
+    setLevel(Math.min(100, rms * 900));
+    if (OD.chunkLen === 0) OD.chunkStart = elapsedNow(state.sessions.find(x => x.id === rec.sessionId) || {elapsed: 0});
+    OD.chunk.push(new Float32Array(d)); OD.chunkLen += d.length;
+    if (speaking){ OD.speechSamples += d.length; OD.silentSamples = 0; } else OD.silentSamples += d.length;
+    const sec = OD.chunkLen / rate;
+    // Abschnitt beenden: nach einer Sprechpause (min. 3 s Länge) oder spätestens nach 20 s
+    if ((sec >= 3 && OD.silentSamples / rate >= 0.7 && OD.speechSamples > 0) || sec >= 20) flushChunk();
+    // Lange Stille ohne Sprache verwerfen
+    else if (OD.speechSamples === 0 && sec >= 6){ OD.chunk = []; OD.chunkLen = 0; }
+  };
+  OD.src.connect(OD.proc); OD.proc.connect(ctx.destination);
+  updateEngineInfo();
+}
+
+function flushChunk(){
+  const rate = OD.ctx ? OD.ctx.sampleRate : 48000;
+  const len = OD.chunkLen, parts = OD.chunk, speech = OD.speechSamples, t = OD.chunkStart;
+  OD.chunk = []; OD.chunkLen = 0; OD.speechSamples = 0; OD.silentSamples = 0;
+  if (!len || speech / rate < 0.4) return;
+  const all = new Float32Array(len); let o = 0; for (const p of parts){ all.set(p, o); o += p.length; }
+  // auf 16 kHz umrechnen (Whisper erwartet 16 kHz)
+  const ratio = rate / 16000, outLen = Math.floor(len / ratio), out = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++){
+    const x = i * ratio, i0 = Math.floor(x), f = x - i0;
+    out[i] = all[i0] * (1 - f) + (all[i0 + 1] ?? all[i0]) * f;
+  }
+  // Lautstärke angleichen, damit leise Lehrkräfte aus der Ferne besser erkannt werden
+  let peak = 0; for (let i = 0; i < outLen; i++) peak = Math.max(peak, Math.abs(out[i]));
+  if (peak > 0 && peak < 0.5){ const g = Math.min(8, 0.7 / peak); for (let i = 0; i < outLen; i++) out[i] *= g; }
+  const id = OD.nextId++;
+  OD.jobs.set(id, {sessionId: rec.sessionId, t}); OD.pending++;
+  getWorker().postMessage({type: 'transcribe', id, audio: out, model: modelId(), language: whisperLang()}, [out.buffer]);
+  updateEngineInfo();
+}
+
+function stopOnDevice(){
+  if (OD.proc){ if (OD.chunkLen) flushChunk(); try{ OD.proc.disconnect(); OD.src.disconnect(); }catch(_){} }
+  OD.proc = null; OD.src = null;
+  OD.stream?.getTracks().forEach(t => t.stop()); OD.stream = null;
+}
+
+function updateEngineInfo(){
+  const el = $('#engineInfo'); if (!el) return;
+  const s = active(); const live = rec.on && s && rec.sessionId === s.id;
+  let t = '';
+  const eng = live ? rec.engine : chooseEngine();
+  if (eng === 'geraet'){
+    t = 'Erkennung auf dem Gerät';
+    if (OD.loadingPct != null) t += ` · Sprachmodell wird geladen ${OD.loadingPct} %${OD.loadingMb ? ' von ' + OD.loadingMb + ' MB' : ''} (nur beim ersten Mal)`;
+    else if (live && !OD.ready && !OD.error) t += ' · Sprachmodell wird vorbereitet …';
+    if (OD.pending) t += ` · ${OD.pending} Abschnitt${OD.pending > 1 ? 'e' : ''} in Arbeit`;
+    else if (live && OD.ready) t += ' · Text erscheint nach jeder Sprechpause';
+  } else t = 'Erkennung im Browser' + (live ? ' · Text erscheint während des Sprechens' : '');
+  el.textContent = t;
+  if (live && eng === 'geraet') showInterim(OD.pending || OD.chunkLen ? 'Wird erkannt …' : '');
 }
 
 function stopRecording(){
   if (!rec.on) return;
   const s = state.sessions.find(x => x.id === rec.sessionId);
-  rec.on = false;
+  if (rec.engine === 'geraet') stopOnDevice();
+  rec.on = false; clearTimeout(rec.watchdog);
   if (s){ s.elapsed += Date.now() - rec.stintStart; }
   const sr = rec.sr; rec.sr = null;
   try{ sr?.stop(); }catch(_){}
@@ -875,6 +1057,7 @@ function renderMain(){
         <div class="rec-status"><strong>${live ? 'Hört zu …' : s.segments.length ? 'Pausiert' : 'Bereit'}</strong>
           <span class="timer mono" id="timer">${fmtTime(elapsedNow(s))}</span>
           <span class="meter" style="flex:1;min-width:80px" aria-hidden="true"><i id="meterBar"></i></span></div>
+        <div class="engine-info" id="engineInfo"></div>
         <div class="markers" aria-label="Letzten Satz markieren">
           <button class="mark-btn" type="button" data-mark="wichtig">Wichtig <kbd>W</kbd></button>
           <button class="mark-btn" type="button" data-mark="aufgabe">Aufgabe <kbd>A</kbd></button>
@@ -886,14 +1069,13 @@ function renderMain(){
         </div>
       </div>
     </section>
-    ${SR ? '' : '<p class="banner">Dieser Browser kann nicht live transkribieren. Öffne die App in Chrome, Edge oder Safari – oder füge Text über „Text einfügen“ ein.</p>'}
-    ${SR && IS_FILE ? '<p class="banner">Du hast die Datei direkt geöffnet. Dann blockiert der Browser oft die Spracherkennung. Öffne die App besser über ihren Internet-Link.</p>' : ''}
+    ${IS_FILE ? '<p class="banner">Du hast die Datei direkt geöffnet. Dann blockiert der Browser die Spracherkennung. Öffne die App über ihren Internet-Link: https://tgg-8.github.io/Contend-creation-/</p>' : ''}
     ${!state.settings.apiKey && !s.example ? '<p class="banner">Tipp: Mit einem Anthropic-API-Schlüssel in den Einstellungen schreibt Claude ausführliche Notizen mit Formeln, Lösungswegen und passenden Übungsaufgaben.</p>' : ''}
 
     <nav class="tabs" role="tablist">${tab('mitschrift', 'Mitschrift')}${tab('notizen', 'Notizen')}${tab('aufgaben', 'Aufgaben')}${tab('export', 'Export')}</nav>
     <div class="panel" id="panel"></div>
   </div></div>`;
-  renderPanel();
+  renderPanel(); updateEngineInfo();
 }
 
 function busyHTML(){
@@ -1069,13 +1251,14 @@ document.addEventListener('keydown', e => {
 // Einstellungen
 $('#settingsBtn').addEventListener('click', () => {
   const st = state.settings;
-  $('#setKlasse').value = st.klasse; $('#setLang').value = st.lang; $('#setCount').value = st.count; $('#setKey').value = st.apiKey; $('#setModel').value = st.model;
+  $('#setKlasse').value = st.klasse; $('#setLang').value = st.lang; $('#setCount').value = st.count; $('#setKey').value = st.apiKey; $('#setModel').value = st.model; $('#setEngine').value = st.engine || 'auto'; $('#setWhisper').value = st.whisper || 'base';
   $('#settingsDlg').showModal();
 });
 $('#settingsDlg').addEventListener('close', () => {
   if ($('#settingsDlg').returnValue !== 'save') return;
   const st = state.settings;
-  st.klasse = $('#setKlasse').value.trim(); st.lang = $('#setLang').value; st.apiKey = $('#setKey').value.trim(); st.model = $('#setModel').value;
+  st.klasse = $('#setKlasse').value.trim(); st.lang = $('#setLang').value; st.apiKey = $('#setKey').value.trim(); st.model = $('#setModel').value; st.engine = $('#setEngine').value;
+  if (st.whisper !== $('#setWhisper').value){ st.whisper = $('#setWhisper').value; OD.ready = false; OD.worker?.terminate(); OD.worker = null; }
   st.count = Math.min(12, Math.max(2, parseInt($('#setCount').value, 10) || 5));
   save(); renderMain(); toast('Einstellungen gespeichert');
 });
