@@ -626,7 +626,7 @@ function getWorker(){
       toast('Erkennung auf dem Gerät: ' + (OD.ready ? 'Ein Abschnitt konnte nicht erkannt werden.' : 'Das Sprachmodell konnte nicht geladen werden. Prüfe die Internetverbindung.'), 7000);
     }
   };
-  w.onerror = () => { OD.error = 'worker'; toast('Die Erkennung auf dem Gerät wird von diesem Browser nicht unterstützt. Bitte Safari, Chrome oder Edge aktualisieren.', 8000); };
+  w.onerror = ev => { OD.error = 'Erkennung startet nicht (' + (ev?.message || 'Worker') + ')'; updateEngineInfo(); toast('Die Erkennung auf dem Gerät wird von diesem Browser nicht unterstützt. Bitte Safari, Chrome oder Edge aktualisieren.', 8000); };
   OD.worker = w;
   w.postMessage({type: 'load', model: modelId()});
   return w;
@@ -641,8 +641,9 @@ function cleanWhisper(t){
 }
 
 async function startOnDevice(){
-  OD.error = null;
+  OD.error = null; OD.heard = 0;
   ensureAudioContext();
+  setTimeout(updateEngineInfo, 3000);
   try{
     OD.stream = await navigator.mediaDevices.getUserMedia({audio: {echoCancellation: true, noiseSuppression: true, autoGainControl: true}});
   }catch(err){
@@ -664,7 +665,7 @@ async function startOnDevice(){
     const rms = Math.sqrt(sum / d.length);
     const speaking = rms > Math.max(0.008, OD.noise * 2.8);
     if (!speaking) OD.noise = OD.noise * 0.97 + rms * 0.03;     // Grundrauschen nachführen
-    setLevel(Math.min(100, rms * 900));
+    setLevel(Math.min(100, rms * 900)); OD.heard = (OD.heard || 0) + 1;
     if (OD.chunkLen === 0) OD.chunkStart = elapsedNow(state.sessions.find(x => x.id === rec.sessionId) || {elapsed: 0});
     OD.chunk.push(new Float32Array(d)); OD.chunkLen += d.length;
     if (speaking){ OD.speechSamples += d.length; OD.silentSamples = 0; } else OD.silentSamples += d.length;
@@ -714,8 +715,10 @@ function updateEngineInfo(){
     t = 'Erkennung auf dem Gerät';
     if (OD.loadingPct != null) t += ` · Sprachmodell wird geladen ${OD.loadingPct} %${OD.loadingMb ? ' von ' + OD.loadingMb + ' MB' : ''} (nur beim ersten Mal)`;
     else if (live && !OD.ready && !OD.error) t += ' · Sprachmodell wird vorbereitet …';
+    if (OD.error) t += ' · Fehler: ' + OD.error;
     if (OD.pending) t += ` · ${OD.pending} Abschnitt${OD.pending > 1 ? 'e' : ''} in Arbeit`;
     else if (live && OD.ready) t += ' · Text erscheint nach jeder Sprechpause';
+    if (live && OD.stream && !OD.heard) t += ' · Mikrofon liefert noch keinen Ton';
   } else t = 'Erkennung im Browser' + (live ? ' · Text erscheint während des Sprechens' : '');
   el.textContent = t;
   if (live && eng === 'geraet') showInterim(OD.pending || OD.chunkLen ? 'Wird erkannt …' : '');

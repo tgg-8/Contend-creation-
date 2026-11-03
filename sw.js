@@ -1,5 +1,5 @@
 // Service Worker: hält die App offline verfügbar (die Spracherkennung selbst braucht weiterhin Internet).
-const CACHE = 'mathe-mitschrift-v3';
+const CACHE = 'mathe-mitschrift-v4';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png', './whisper-worker.js'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => {
