@@ -1,0 +1,18 @@
+{
+  "name": "Mathe-Mitschrift",
+  "short_name": "Mathe-Mitschrift",
+  "description": "Hört im Matheunterricht zu, schreibt alles mit und erstellt Notizen, Hausaufgaben und Übungsaufgaben.",
+  "lang": "de",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f7f9fc",
+  "theme_color": "#1d4fc4",
+  "icons": [
+    {"src": "icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+    {"src": "icon.svg", "sizes": "any", "type": "image/svg+xml"}
+  ]
+}
