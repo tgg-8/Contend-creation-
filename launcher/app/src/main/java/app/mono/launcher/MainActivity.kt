@@ -31,6 +31,8 @@ import app.mono.launcher.data.Prefs
 import app.mono.launcher.ui.AppDrawer
 import app.mono.launcher.ui.HomeScreen
 import app.mono.launcher.ui.SettingsScreen
+import app.mono.launcher.ui.WallpaperBackground
+import app.mono.launcher.ui.WallpaperSettings
 
 /** Welche Ansicht gerade sichtbar ist. */
 sealed interface Screen {
@@ -95,6 +97,7 @@ class MainActivity : ComponentActivity() {
                             onFavoriteClick = { i -> openFavorite(i) },
                             onFavoriteLongPress = { i -> screen.value = Screen.PickFavorite(i) },
                             onRequestLocation = { askPermissions(Manifest.permission.ACCESS_COARSE_LOCATION) },
+                            background = { WallpaperBackground(settings) },
                         )
 
                         Screen.Drawer -> AppDrawer(
@@ -121,6 +124,7 @@ class MainActivity : ComponentActivity() {
                             refreshTick = tick,
                             onClose = { screen.value = Screen.Home },
                             onRequestPermissions = { askPermissions(*it) },
+                            wallpaperSection = { WallpaperSettings(prefs) },
                         )
                     }
                 }

@@ -6,6 +6,7 @@ import android.app.usage.UsageEvents.Event.ACTIVITY_STOPPED
 import android.app.usage.UsageEvents.Event.SCREEN_NON_INTERACTIVE
 import app.mono.launcher.data.ScreenTime
 import app.mono.launcher.data.ScreenTime.UsageEvent
+import app.mono.launcher.data.Wallpaper
 import app.mono.launcher.data.Weather
 import app.mono.launcher.data.normalizeForSearch
 import app.mono.launcher.ui.Fmt
@@ -98,5 +99,15 @@ class LogicTest {
     @Test fun weatherGerman() {
         assertEquals("Klarer Himmel", Weather.describe(0))
         assertEquals("Leichter Regen", Weather.describe(61))
+    }
+
+    @Test fun wallpaperCrop() {
+        // Pixel 9 Pro: 1280 x 2856. Querformat-Foto 4000x3000 → mittiger Hochkant-Streifen.
+        val (x, y, w, h) = Wallpaper.centerCrop(4000, 3000, 1280, 2856)
+        assertEquals(3000, h); assertEquals(0, y)
+        assertEquals(1345, w); assertEquals((4000 - 1345) / 2, x)
+        // Sehr hohes Bild → oben/unten abschneiden.
+        val (x2, y2, w2, h2) = Wallpaper.centerCrop(1000, 4000, 1280, 2856)
+        assertEquals(0, x2); assertEquals(1000, w2); assertEquals(2231, h2); assertEquals((4000 - 2231) / 2, y2)
     }
 }
