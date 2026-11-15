@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Wetter: Anfrage an Open-Meteo -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Wetter: nur grober Standort (ca. 1-3 km genau) -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Nächster Termin + Terminsuche -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <!-- Kontakte in der Suche -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Bildschirmzeit: Sonderberechtigung "Nutzungszugriff", wird in den Einstellungen erteilt -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- Paket-Sichtbarkeit (Android 11+): welche Apps/Intents wir sehen dürfen -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.WEB_SEARCH" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="geo" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="market" />
+        </intent>
+        <package android:name="com.google.android.apps.wellbeing" />
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.google.android.apps.maps" />
+        <package android:name="com.android.vending" />
+        <package android:name="com.google.android.apps.photos" />
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="Mono"
+        android:supportsRtl="false"
+        android:theme="@style/Theme.Mono">
+
+        <!-- Die eine Activity ist gleichzeitig Startbildschirm (HOME) und normaler App-Eintrag. -->
+        <activity
+            android:name=".MainActivity"
+            android:clearTaskOnLaunch="true"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode|density"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:resumeWhilePausing="true"
+            android:screenOrientation="portrait"
+            android:stateNotNeeded="true"
+            android:windowSoftInputMode="adjustResize"
+            tools:ignore="DiscouragedApi,LockedOrientationActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

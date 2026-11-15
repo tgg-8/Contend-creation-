@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Rein schwarzes Fenster, kein System-Hintergrundbild, keine Action Bar. -->
+    <style name="Theme.Mono" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowShowWallpaper">false</item>
+        <item name="android:colorBackground">@android:color/black</item>
+    </style>
+</resources>
