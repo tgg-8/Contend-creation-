@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -39,8 +42,11 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.mono.launcher.data.AppEntry
+import app.mono.launcher.data.SearchItem
 import app.mono.launcher.data.normalizeForSearch
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 /**
  * App-Liste mit Suchfeld.
@@ -57,6 +63,9 @@ fun AppDrawer(
     onLaunch: (AppEntry) -> Unit,
     onLongPress: ((AppEntry) -> Unit)? = null,
     onClose: () -> Unit,
+    /** Weitere Treffer (Kontakte, Shortcuts, Termine, Web/In-App). null = nur Apps (z. B. Favoriten-Auswahl). */
+    searchProvider: (suspend (String) -> List<SearchItem>)? = null,
+    onExtraRun: () -> Unit = {},
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     val focus = remember { FocusRequester() }
@@ -73,6 +82,17 @@ fun AppDrawer(
     }
 
     val matches = remember(query, apps) { filterApps(apps, query) }
+
+    // Weitere Treffer kurz verzögert und im Hintergrund suchen (nicht bei jedem Tastendruck sofort).
+    val provider by rememberUpdatedState(searchProvider)
+    var extras by remember { mutableStateOf<List<SearchItem>>(emptyList()) }
+    LaunchedEffect(query) {
+        val p = provider
+        if (p == null || query.isBlank()) { extras = emptyList(); return@LaunchedEffect }
+        delay(120)
+        extras = withContext(Dispatchers.IO) { runCatching { p(query) }.getOrDefault(emptyList()) }
+    }
+    fun runExtra(item: SearchItem) { item.run(); onExtraRun() }
 
     // Auto-Öffnen nur bei eindeutigem App-Treffer und nicht-leerer Eingabe.
     LaunchedEffect(query, matches) {
@@ -102,8 +122,10 @@ fun AppDrawer(
                 autoCorrectEnabled = false,
                 imeAction = ImeAction.Go,
             ),
-            // "Los" auf der Tastatur startet den obersten Treffer.
-            keyboardActions = KeyboardActions(onGo = { matches.firstOrNull()?.let(launch) }),
+            // "Los" auf der Tastatur: oberste App, sonst oberstes weiteres Ergebnis (z. B. Websuche).
+            keyboardActions = KeyboardActions(onGo = {
+                matches.firstOrNull()?.let(launch) ?: extras.firstOrNull()?.let(::runExtra)
+            }),
             modifier = Modifier.fillMaxWidth().focusRequester(focus),
             decorationBox = { inner ->
                 Column {
@@ -131,6 +153,18 @@ fun AppDrawer(
                         .padding(vertical = 10.dp)
                         .tap(onLongClick = onLongPress?.let { { it(app) } }) { launch(app) },
                 )
+            }
+            // Unter den Apps: weitere Ergebnisse, jeweils mit kleiner Herkunftsangabe.
+            if (extras.isNotEmpty() && matches.isNotEmpty()) item(key = "x:divider") { Spacer(Modifier.height(12.dp)) }
+            items(extras, key = { "x:" + it.key }) { item ->
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 8.dp).tap { runExtra(item) },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    T(item.title, size = 20.sp, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+                    Spacer(Modifier.width(12.dp))
+                    T(item.source, size = 14.sp, alpha = 0.55f, maxLines = 1)
+                }
             }
         }
     }

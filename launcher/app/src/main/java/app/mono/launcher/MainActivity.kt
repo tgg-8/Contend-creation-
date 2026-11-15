@@ -2,6 +2,7 @@ package app.mono.launcher
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.ShortcutInfo
 import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.os.Bundle
@@ -22,17 +23,23 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import app.mono.launcher.data.AppEntry
 import app.mono.launcher.data.AppRepository
 import app.mono.launcher.data.Favorite
 import app.mono.launcher.data.Prefs
+import app.mono.launcher.data.Search
+import app.mono.launcher.data.SearchItem
+import app.mono.launcher.ui.Fmt
 import app.mono.launcher.ui.AppDrawer
 import app.mono.launcher.ui.HomeScreen
 import app.mono.launcher.ui.SettingsScreen
 import app.mono.launcher.ui.WallpaperBackground
 import app.mono.launcher.ui.WallpaperSettings
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** Welche Ansicht gerade sichtbar ist. */
 sealed interface Screen {
@@ -49,6 +56,7 @@ sealed interface Screen {
 class MainActivity : ComponentActivity() {
     private lateinit var prefs: Prefs
     private lateinit var repo: AppRepository
+    private lateinit var search: Search
 
     private val screen = mutableStateOf<Screen>(Screen.Home)
     /** Wird bei jedem onResume erhöht → Bildschirmzeit, Termin, Berechtigungen neu lesen. */
@@ -73,11 +81,16 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         prefs = Prefs(applicationContext)
         repo = AppRepository(applicationContext).also { it.start() }
+        search = Search(applicationContext)
 
-        // Beim allerersten Start einmal nach Standort (Wetter) und Kalender fragen.
+        // Beim allerersten Start einmal nach Standort (Wetter), Kalender und Kontakten (Suche) fragen.
         if (!prefs.flag("first_permissions")) {
             prefs.setFlag("first_permissions")
-            askPermissions(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.READ_CALENDAR)
+            askPermissions(
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+                Manifest.permission.READ_CALENDAR,
+                Manifest.permission.READ_CONTACTS,
+            )
         }
 
         setContent {
@@ -100,13 +113,21 @@ class MainActivity : ComponentActivity() {
                             background = { WallpaperBackground(settings) },
                         )
 
-                        Screen.Drawer -> AppDrawer(
-                            apps = apps,
-                            autoOpenDelayMs = settings.autoOpenDelayMs,
-                            onLaunch = { launchApp(it) },
-                            onLongPress = { repo.openAppInfo(it) },
-                            onClose = { screen.value = Screen.Home },
-                        )
+                        Screen.Drawer -> {
+                            // Shortcuts einmal pro Öffnen laden, danach nur filtern.
+                            val shortcuts by produceState(emptyList<ShortcutInfo>()) {
+                                value = withContext(Dispatchers.IO) { search.loadShortcuts() }
+                            }
+                            AppDrawer(
+                                apps = apps,
+                                autoOpenDelayMs = settings.autoOpenDelayMs,
+                                onLaunch = { launchApp(it) },
+                                onLongPress = { repo.openAppInfo(it) },
+                                onClose = { screen.value = Screen.Home },
+                                searchProvider = { q -> searchExtras(q, shortcuts, apps, settings.germanClock) },
+                                onExtraRun = { screen.value = Screen.Home },
+                            )
+                        }
 
                         is Screen.PickFavorite -> AppDrawer(
                             apps = apps,
@@ -148,6 +169,15 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         repo.stop()
         super.onDestroy()
+    }
+
+    /** Reihenfolge unter den App-Treffern: Kontakte, Verknüpfungen, Termine, dann Web/In-App-Suche. */
+    private fun searchExtras(q: String, shortcuts: List<ShortcutInfo>, apps: List<AppEntry>, german: Boolean): List<SearchItem> {
+        val labels = apps.associate { it.packageName to it.label }
+        return search.contacts(q) +
+            search.shortcuts(shortcuts, q, labels) +
+            search.events(q, german) { e, g -> "Termin · " + Fmt.eventLong(e, g) } +
+            search.webAndAppSearches(q)
     }
 
     private fun launchApp(app: AppEntry) {
